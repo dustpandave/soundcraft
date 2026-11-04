@@ -1,0 +1,21 @@
+[package]
+name = "soundcraft-assistant"
+description = "SoundCraft's built-in AI assistant: a Claude conversation that drives the app through the same tools as the MCP server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+soundcraft-automation.workspace = true
+serde_json.workspace = true
+log.workspace = true
+# Blocking HTTPS client for the Claude API (the conversation runs on its own thread).
+ureq = "3"
+
+[dev-dependencies]
+soundcraft-engine.workspace = true
+
+[lints]
+workspace = true

@@ -359,9 +359,30 @@ fn err(e: impl std::fmt::Display) -> Value {
 }
 
 /// Run at most 65 queued control requests on the UI thread, stopping while a scripted gesture is undelivered so later
-/// requests observe its result. A panicking handler still gets one error reply.
+/// requests observe its result. A panicking handler still gets one error reply. The AI Assistant's requests are
+/// drained the same way, after the control channel's.
 pub fn drain(app: &mut SoundApp, ctx: &egui::Context) {
-    let Some(rx) = app.control_rx.take() else { return };
+    if let Some(rx) = app.control_rx.take() {
+        let n = drain_queue(app, ctx, &rx);
+        app.control_rx = Some(rx);
+        if n > 0 {
+            ctx.request_repaint();
+        }
+    }
+    if let Some(rx) = app.assistant.requests.take() {
+        let n = drain_queue(app, ctx, &rx);
+        // A handler may have replaced the receiver (e.g. a new API key started a new chat).
+        if app.assistant.requests.is_none() {
+            app.assistant.requests = Some(rx);
+        }
+        if n > 0 {
+            ctx.request_repaint();
+        }
+    }
+}
+
+/// Handle up to 65 requests from one queue; returns how many were taken.
+fn drain_queue(app: &mut SoundApp, ctx: &egui::Context, rx: &Receiver<ControlRequest>) -> usize {
     let mut n = 0;
     loop {
         // Do not let a request behind an undelivered gesture observe or mutate the state the
@@ -386,10 +407,7 @@ pub fn drain(app: &mut SoundApp, ctx: &egui::Context) {
             break;
         }
     }
-    app.control_rx = Some(rx);
-    if n > 0 {
-        ctx.request_repaint();
-    }
+    n
 }
 
 fn key_from(name: &str) -> Option<egui::Key> {

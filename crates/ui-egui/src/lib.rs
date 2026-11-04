@@ -49,6 +49,7 @@ pub use dialogs::ops_windows;
 use dialogs::recent;
 pub use dialogs::recovery;
 pub use dialogs::spot;
+pub use panels::assistant;
 pub use panels::extra_windows;
 pub use panels::midi_editor;
 pub use panels::sampler_window;
@@ -301,6 +302,8 @@ pub struct SoundApp {
     pub midi: midi_editor::MidiEditorState,
     pub ops: ops_windows::OpsState,
     pub extra: extra_windows::ExtraState,
+    /// The AI Assistant window and its conversation.
+    pub assistant: assistant::AssistantState,
     pub palette: palette::PaletteState,
     /// Bring the separate Mix window to the front on the next frame.
     pub(crate) focus_mix: bool,

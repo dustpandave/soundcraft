@@ -74,6 +74,7 @@ fn dock_tabs(app: &mut SoundApp, ui: &mut Ui) {
         ("MIDI EDITOR", app.ui.show_midi_editor, "window.midi_editor"),
         ("MEMORY LOCATIONS", app.ui.show_memory_locations, "window.memory_locations"),
         ("UNDO HISTORY", app.ui.show_undo_history, "window.undo_history"),
+        ("AI ASSISTANT", app.assistant.show, "window.assistant"),
     ] {
         let g = ui.painter().layout_no_wrap(label.to_string(), bold(10.5), if on { Color32::WHITE } else { t.text_dim });
         let tr = Rect::from_min_size(pos2(x, r.min.y + 2.0), vec2(g.size().x + 16.0, r.height() - 4.0));

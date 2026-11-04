@@ -62,6 +62,7 @@ impl SoundApp {
             midi: midi_editor::MidiEditorState::default(),
             ops: ops_windows::OpsState::default(),
             extra: extra_windows::ExtraState::default(),
+            assistant: crate::assistant::AssistantState::default(),
             palette: palette::PaletteState::default(),
             focus_mix: false,
             edit_scroll_into_view: None,
@@ -336,6 +337,7 @@ impl SoundApp {
         video_window::show(self, &ctx);
         ops_windows::show(self, &ctx);
         extra_windows::show(self, &ctx);
+        crate::assistant::show(self, &ctx);
         recovery::show(self, &ctx);
         score_editor::show(self, &ctx);
         palette::show(self, &ctx);

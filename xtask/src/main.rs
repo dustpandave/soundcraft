@@ -35,6 +35,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("engine", 4),
     ("playback", 4),
     ("automation", 5),
+    ("assistant", 5),
     ("ui-egui", 6),
 ];
 /// Standalone format crates: no workspace dependencies at all (publishable on their own).

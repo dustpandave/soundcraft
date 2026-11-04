@@ -25,6 +25,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, Option<&str>)] = &[
     ("window.session_info", "Session Info", "", None),
     ("window.audio_health", "Session Audio Health", "", None),
     ("window.about", "About SoundCraft", "", None),
+    ("window.assistant", "AI Assistant", "", None),
     ("window.close", "Close Window", "Window > Close Window", Some("Cmd+W")),
     ("window.hide_floating", "Hide All Floating Windows", "Window > Hide All Floating Windows", Some("Cmd+Ctrl+W")),
     ("window.midi_editor", "MIDI Editor", "Window > MIDI Editor", None),
@@ -241,6 +242,9 @@ pub fn menu_bar(app: &mut SoundApp, ui: &mut egui::Ui) {
                     }
                     if ui.button("Session Audio Health").clicked() {
                         let _ = app.run("window.audio_health", json!({"value": true}));
+                    }
+                    if ui.button("AI Assistant").clicked() {
+                        let _ = app.run("window.assistant", json!({"value": true}));
                     }
                     ui.separator();
                     if ui.button("Quit").clicked() {
@@ -513,6 +517,9 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
         return Some(crate::docking::command(app, id, p));
     }
     if let Some(v) = crate::extra_windows::run(app, id, p) {
+        return Some(Ok(v));
+    }
+    if let Some(v) = crate::assistant::run(app, id, p) {
         return Some(Ok(v));
     }
     if id == "ui.audio_device" {

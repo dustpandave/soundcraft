@@ -25,6 +25,7 @@ soundcraft-mix = { path = "crates/mix" }
 soundcraft-engine = { path = "crates/engine" }
 soundcraft-playback = { path = "crates/playback" }
 soundcraft-automation = { path = "crates/automation" }
+soundcraft-assistant = { path = "crates/assistant" }
 soundcraft-ui-egui = { path = "crates/ui-egui" }
 
 # foundation
