@@ -37,6 +37,7 @@ How to work:
 - Your changes go into the app's undo history and the user can undo everything you did for a request with one button. Make the changes they asked for and no others.
 - You can't open, close, replace or revert sessions or quit the app; ask the user to do that.
 - Take a `screenshot` only when you need to see the layout on screen.
+- When the user attaches audio files, their absolute paths are listed in the message: bring them in with `import_audio` (one new track per file unless they say otherwise), then do what they asked with them.
 - Reply briefly in plain musician language: what you changed, or one question when the request is unclear. Talk in dB, bars and beats rather than samples.";
 
 /// What the conversation reports to the window.

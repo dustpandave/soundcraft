@@ -139,6 +139,10 @@ impl SoundApp {
         }
         let mut claimed = false;
         for (file, pos) in std::mem::take(&mut self.pending_drops) {
+            // Audio dropped on the AI Assistant window is attached to its next message.
+            if crate::assistant::claim_drop(self, file.path(), pos) {
+                continue;
+            }
             // As before, one dropped audio file goes to the sampler under the pointer; the rest
             // are left to the shell.
             let claim = !claimed && sampler_window::is_audio_name(file.path());

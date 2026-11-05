@@ -49,6 +49,47 @@ pub struct AssistantState {
     log: Vec<Line>,
     input: String,
     undo: Option<UndoSpan>,
+    /// Audio files dropped on the window, sent with the next message (absolute paths).
+    attachments: Vec<String>,
+    /// Where the window was last drawn, for claiming files dropped on it.
+    window_rect: Option<egui::Rect>,
+}
+
+/// Attachments one message may carry.
+const MAX_ATTACHMENTS: usize = 16;
+
+/// Take a file dropped on the Assistant window: audio files with a real path are attached to the
+/// next message. Returns whether the drop was claimed (the sampler and the shell don't see it).
+pub(crate) fn claim_drop(app: &mut SoundApp, path: &std::path::Path, pos: Option<egui::Pos2>) -> bool {
+    let a = &mut app.assistant;
+    let over = matches!((a.window_rect, pos), (Some(r), Some(p)) if r.contains(p));
+    if !over || !path.is_absolute() || !crate::sampler_window::is_audio_name(path) {
+        return false;
+    }
+    let Some(s) = path.to_str() else {
+        a.log.push(Line::Error(format!("Can't attach {}: the path isn't valid text.", path.display())));
+        return true;
+    };
+    if a.attachments.len() >= MAX_ATTACHMENTS {
+        a.log.push(Line::Error(format!("At most {MAX_ATTACHMENTS} files per message.")));
+    } else if !a.attachments.iter().any(|x| x == s) {
+        a.attachments.push(s.to_string());
+    }
+    true
+}
+
+/// The message Claude receives: the user's words plus the attached files' paths.
+fn with_attachments(text: &str, files: &[String]) -> String {
+    if files.is_empty() {
+        return text.to_string();
+    }
+    let ask = if text.is_empty() {
+        "Import these audio files onto new tracks, one track per file, starting at the beginning of the session."
+    } else {
+        text
+    };
+    let list: Vec<String> = files.iter().map(|f| format!("- {f}")).collect();
+    format!("{ask}\n\nAttached audio files (absolute paths, for import_audio):\n{}", list.join("\n"))
 }
 
 /// UI commands handled here (`window.assistant`).
@@ -64,15 +105,33 @@ pub fn show(app: &mut SoundApp, ctx: &egui::Context) {
     poll(app);
     let mut open = app.assistant.show;
     if !open {
+        app.assistant.window_rect = None;
         return;
     }
-    egui::Window::new(RichText::new("AI Assistant").font(bold(13.0)))
+    let shown = egui::Window::new(RichText::new("AI Assistant").font(bold(13.0)))
         .open(&mut open)
         .default_size(vec2(380.0, 560.0))
         .min_size(vec2(300.0, 320.0))
         .resizable(true)
         .show(ctx, |ui| body(app, ui));
+    app.assistant.window_rect = shown.map(|r| r.response.rect);
     app.assistant.show = open;
+    drop_highlight(app, ctx);
+}
+
+/// While files are dragged over the window, outline it and say what a drop does.
+fn drop_highlight(app: &SoundApp, ctx: &egui::Context) {
+    let Some(rect) = app.assistant.window_rect else { return };
+    let dragging = ctx.input(|i| !i.raw.hovered_files.is_empty());
+    let over = ctx.input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p));
+    if !dragging || !over {
+        return;
+    }
+    let t = Tokens::current();
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("assistant_drop")));
+    painter.rect_filled(rect, 6.0, t.accent.gamma_multiply(0.12));
+    painter.rect_stroke(rect, 6.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Drop audio to attach it", bold(14.0), t.text);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -260,13 +319,15 @@ fn composer(app: &mut SoundApp, ui: &mut egui::Ui, busy: bool) {
     let id = ui.make_persistent_id("assistant_input");
     // Enter sends, Shift+Enter starts a new line: take the plain Enter before the editor sees it.
     let enter = ui.memory(|m| m.has_focus(id)) && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    attachment_chips(app, ui);
     let edit = egui::TextEdit::multiline(&mut app.assistant.input)
         .id(id)
         .desired_rows(3)
         .desired_width(f32::INFINITY)
         .hint_text("Ask for a change… (Enter to send, Shift+Enter for a new line)");
     ui.add(edit).widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Message to the assistant"));
-    let send = ui.add_enabled(!busy && !app.assistant.input.trim().is_empty(), egui::Button::new("Send")).clicked();
+    let ready = !app.assistant.input.trim().is_empty() || !app.assistant.attachments.is_empty();
+    let send = ui.add_enabled(!busy && ready, egui::Button::new("Send")).clicked();
     if (send || enter) && !busy {
         submit(app, ui.ctx());
         ui.memory_mut(|m| m.request_focus(id));
@@ -274,11 +335,32 @@ fn composer(app: &mut SoundApp, ui: &mut egui::Ui, busy: bool) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn submit(app: &mut SoundApp, ctx: &egui::Context) {
-    let text = app.assistant.input.trim().to_string();
-    if text.is_empty() {
+fn attachment_chips(app: &mut SoundApp, ui: &mut egui::Ui) {
+    if app.assistant.attachments.is_empty() {
+        ui.label(RichText::new("Tip: drop audio files here to attach them.").font(regular(10.5)).color(Tokens::current().text_dim));
         return;
     }
+    let mut remove = None;
+    ui.horizontal_wrapped(|ui| {
+        for (i, path) in app.assistant.attachments.iter().enumerate() {
+            let name = std::path::Path::new(path).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
+            if ui.small_button(format!("♪ {name}  ✕")).on_hover_text(format!("{path}\nClick to remove")).clicked() {
+                remove = Some(i);
+            }
+        }
+    });
+    if let Some(i) = remove.filter(|i| *i < app.assistant.attachments.len()) {
+        app.assistant.attachments.remove(i);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn submit(app: &mut SoundApp, ctx: &egui::Context) {
+    let typed = app.assistant.input.trim().to_string();
+    if typed.is_empty() && app.assistant.attachments.is_empty() {
+        return;
+    }
+    let text = with_attachments(&typed, &app.assistant.attachments);
     if app.assistant.chat.is_none()
         && let Err(e) = start_chat(app, ctx)
     {
@@ -292,8 +374,15 @@ fn submit(app: &mut SoundApp, ctx: &egui::Context) {
     if let Some(chat) = app.assistant.chat.as_mut()
         && chat.ask(&text, &model)
     {
-        app.assistant.log.push(Line::User(text));
+        // The log shows what was typed and the file names, not the path list Claude gets.
+        let mut shown = if typed.is_empty() { "Import these files.".to_string() } else { typed };
+        for f in &app.assistant.attachments {
+            let name = std::path::Path::new(f).file_name().map_or_else(|| f.clone(), |n| n.to_string_lossy().into_owned());
+            shown.push_str(&format!("\n♪ {name}"));
+        }
+        app.assistant.log.push(Line::User(shown));
         app.assistant.input.clear();
+        app.assistant.attachments.clear();
         app.assistant.undo = Some(UndoSpan { start: undo_len, end: None });
     }
 }
@@ -413,5 +502,61 @@ mod bridge {
         fn describe(&self) -> String {
             "the SoundCraft desktop app".into()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Services;
+    use std::path::Path;
+
+    fn app_with_window() -> SoundApp {
+        let mut app = SoundApp::new(soundcraft_engine::demo::demo_engine(), None, Services::default());
+        app.assistant.window_rect = Some(egui::Rect::from_min_size(egui::pos2(100.0, 100.0), vec2(300.0, 400.0)));
+        app
+    }
+
+    #[test]
+    fn audio_dropped_on_the_window_is_attached_once() {
+        let mut app = app_with_window();
+        let inside = Some(egui::pos2(200.0, 200.0));
+        assert!(claim_drop(&mut app, Path::new("/tmp/suno/vocals.wav"), inside));
+        assert!(claim_drop(&mut app, Path::new("/tmp/suno/vocals.wav"), inside), "a repeat is still claimed");
+        assert_eq!(app.assistant.attachments, ["/tmp/suno/vocals.wav"]);
+    }
+
+    #[test]
+    fn other_drops_are_left_alone() {
+        let mut app = app_with_window();
+        let inside = Some(egui::pos2(200.0, 200.0));
+        assert!(!claim_drop(&mut app, Path::new("/tmp/a.wav"), Some(egui::pos2(10.0, 10.0))), "outside the window");
+        assert!(!claim_drop(&mut app, Path::new("/tmp/a.wav"), None), "no pointer position");
+        assert!(!claim_drop(&mut app, Path::new("/tmp/notes.txt"), inside), "not audio");
+        assert!(!claim_drop(&mut app, Path::new("a.wav"), inside), "no real path (web drop)");
+        app.assistant.window_rect = None;
+        assert!(!claim_drop(&mut app, Path::new("/tmp/a.wav"), inside), "window closed");
+        assert!(app.assistant.attachments.is_empty());
+    }
+
+    #[test]
+    fn attachments_are_capped() {
+        let mut app = app_with_window();
+        let inside = Some(egui::pos2(200.0, 200.0));
+        for i in 0..MAX_ATTACHMENTS + 3 {
+            claim_drop(&mut app, Path::new(&format!("/tmp/{i}.wav")), inside);
+        }
+        assert_eq!(app.assistant.attachments.len(), MAX_ATTACHMENTS);
+    }
+
+    #[test]
+    fn message_lists_paths_and_defaults_to_importing() {
+        assert_eq!(with_attachments("hi", &[]), "hi");
+        let m = with_attachments("", &["/a/b.wav".into()]);
+        assert!(m.starts_with("Import these audio files onto new tracks"));
+        assert!(m.ends_with("- /a/b.wav"));
+        let m = with_attachments("put this at bar 9", &["/a/b.wav".into(), "/a/c.flac".into()]);
+        assert!(m.starts_with("put this at bar 9\n\nAttached audio files"));
+        assert!(m.contains("- /a/b.wav\n- /a/c.flac"));
     }
 }
